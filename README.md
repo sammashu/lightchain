@@ -1,5 +1,5 @@
 ## Synopsis
-First version presently is decentralize
+First version presently is centralize
 
 ## Code Example
 
