@@ -1,0 +1,34 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: lightchain
+spec:
+  selector:
+      matchLabels:
+        app: lightchain
+  replicas: 3
+  template:
+    metadata:
+      labels:
+        app: lightchain
+    spec:
+      containers:
+        - name: lightchain
+          imagePullPolicy: Never # specific to minikube to run locally
+          image: lightchain
+---
+apiVersion: v1  
+kind: Service  
+metadata:  
+  name: lightchain-service  
+  labels:  
+    app: lightchain-service  
+spec:
+  type: LoadBalancer
+  ports:  
+    - name: http  
+      port: 80
+      targetPort: 5000
+  selector:  
+    app: lightchain
+---  
