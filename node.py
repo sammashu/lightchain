@@ -9,6 +9,7 @@ wallet = Wallet()
 blockchain = Blockchain(wallet.public_key)
 CORS(app)
 
+
 @app.route('/', methods=['GET'])
 def get_ui():
     return send_from_directory('ui', 'node.html')
@@ -68,7 +69,6 @@ def get_balance():
         return jsonify(response), 500
 
 
-
 @app.route('/transaction', methods=['POST'])
 def add_transaction():
     if wallet.public_key == None:
@@ -111,6 +111,7 @@ def add_transaction():
         }
         return jsonify(response), 500
 
+
 @app.route('/mine', methods=['POST'])
 def mine():
     block = blockchain.mine_block()
@@ -130,11 +131,13 @@ def mine():
         }
         return jsonify(response), 500
 
+
 @app.route('/transactions', methods=['GET'])
 def get_open_transaction():
     transactions = blockchain.get_open_transactions()
     dict_transactions = [tx.__dict__ for tx in transactions]
     return jsonify(dict_transactions), 200
+
 
 @app.route('/chain', methods=['GET'])
 def get_chain():
@@ -143,6 +146,51 @@ def get_chain():
     for dict_block in dict_chain:
         dict_block['transactions'] = [tx.__dict__ for tx in dict_block['transactions']]
     return jsonify(dict_chain), 200
+
+
+@app.route('/node', methods=['POST'])
+def add_node():
+    values = request.get_json()
+    if not values:
+        response = {
+            'message': 'No date attached.'
+        }
+        return jsonify(response), 400
+    if 'node' not in values:
+        response = {
+            'message': 'No node data found.'
+        }
+        return jsonify(response), 400
+    node = values['node']
+    blockchain.add_peer_node(node)
+    response = {
+        'message': 'Node added successfully.',
+        'all_nodes': blockchain.get_peer_nodes()
+    }
+    return jsonify(response), 200
+
+
+@app.route('/node/<node_url>', methods=['DELETE'])
+def remove_node(node_url):
+    if node_url == '' or node_url == None:
+        response = {
+            'message': 'No node found.'
+        }
+        return jsonify(response), 400
+    blockchain.remove_peer_node(node_url)
+    response = {
+        'message': 'Node removed',
+        'all_nodes': blockchain.get_peer_nodes()
+    }
+    return jsonify(response), 200
+
+@app.route('/nodes', methods=['GET'])
+def get_nodes():
+    nodes = blockchain.get_peer_nodes()
+    response = {
+        'all_nodes': nodes
+    }
+    return jsonify(response), 200
 
 
 if __name__ == '__main__':
