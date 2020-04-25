@@ -20,7 +20,8 @@ eval $(minikube docker-env)
 
 ## Usage locally
 ```bash
-python node.py
+python node.py will default port 5000 first node
+python node.py -p <port> to run another node in different port
 ```
 
 ## Usage minikube 
