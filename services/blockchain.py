@@ -1,11 +1,12 @@
-from functools import reduce
 import json
-import requests
+import aiohttp
 
+import app
+from functools import reduce
 from utility.hash_util import hash_block
-from block import Block
-from transaction import Transaction
-from wallet import Wallet
+from services.block import Block
+from services.transaction import Transaction
+from services.wallet import Wallet
 from utility.verification import Verification
 
 MINING_REWARD = 10
@@ -33,16 +34,13 @@ class Blockchain:
     def chain(self, val):
         self.__chain = val
 
-    def get_open_transactions(self):
+    async def get_open_transactions(self):
         return self.__open_transactions[:]
 
     def load_data(self):
         try:
             with open('blockchain-{}.txt'.format(self.node_id), mode='r') as f:
-                # file_content = pickle.loads(f.read())
                 file_content = f.readlines()
-                # blockchain = file_content['chain']
-                # open_transactions = file_content['ot']
                 blockchain = json.loads(file_content[0][:-1])
                 updated_blockchain = []
                 for block in blockchain:
@@ -77,11 +75,6 @@ class Blockchain:
                 f.write(json.dumps(saveable_tx))
                 f.write('\n')
                 f.write(json.dumps(list(self.__peer_nodes)))
-                # save_data = {
-                #     'chain': blockchain,
-                #     'ot': open_transactions
-                # }
-                # f.write(pickle.dumps(save_data))
         except IOError:
             print('Saving failes!')
 
@@ -93,7 +86,7 @@ class Blockchain:
             proof += 1
         return proof
 
-    def get_balance(self, sender=None):
+    async def get_balance(self, sender=None):
         if sender is None:
             if self.public_key is None:
                 return None
@@ -118,42 +111,31 @@ class Blockchain:
             return None
         return self.__chain[-1]
 
-    def add_transaction(self, recipient, sender, signature, amount=1.0, is_receiving=False):
-        # transaction = {'sender': sender,
-        #                'recipient': recipient,
-        #                'amount': amount}
-        # if self.public_key == None:
-        #     return False
+    async def add_transaction(self, recipient, sender, signature, amount=1.0, is_receiving=False):
         transaction = Transaction(sender, recipient, signature, amount)
-        if Verification.verify_transaction(transaction, self.get_balance):
+        if await Verification.verify_transaction(transaction, self.get_balance):
             self.__open_transactions.append(transaction)
             self.save_data()
             if not is_receiving:
                 for node in self.__peer_nodes:
                     url = 'http://{}/broadcast-transaction'.format(node)
                     try:
-                        response = requests.post(url,
-                                                 json={'sender': sender, 'recipient': recipient, 'signature': signature,
-                                                       'amount': amount})
-                        if response.status_code == 400 or response.status_code == 500:
-                            print('Transaction declined, needs resolving')
-                            return False
-                    except requests.exceptions.ConnectionError:
+                        async with app.api.aiohttp_session.post(url, json={'sender': sender, 'recipient': recipient, 'signature': signature,
+                                                       'amount': amount}) as rsp:
+                            if rsp.status == 400 or rsp.status == 500:
+                                print('Transaction declined, needs resolving')
+                                return False
+                    except aiohttp.ClientConnectionError:
                         continue
             return True
         return False
 
-    def mine_block(self):
+    async def mine_block(self):
         if self.public_key is None:
             return None
         last_block = self.__chain[-1]
         hashed_block = hash_block(last_block)
         proof = self.proof_of_work()
-        # reward_transaction  = {
-        #     'sender': 'MINING',
-        #     'recipient': owner,
-        #     'amount': MINING_REWARD
-        # }
         reward_transaction = Transaction('MINING', self.public_key, '', MINING_REWARD)
         copied_transactions = self.__open_transactions[:]
         for tx in copied_transactions:
@@ -169,16 +151,16 @@ class Blockchain:
             converted_block = block.__dict__.copy()
             converted_block['transactions'] = [tx.__dict__ for tx in converted_block['transactions']]
             try:
-                response = requests.post(url, json={'block': converted_block})
-                if response.status_code == 400 or response.status_code == 500:
-                    print('Block declined, needs resolving')
-                if response.status_code == 409:
-                    self.resolve_conflicts = True
-            except requests.exceptions.ConnectionError:
+                async with app.api.aiohttp_session.post(url, json={'block': converted_block}) as rsp:
+                    if rsp.status == 400 or rsp.status == 500:
+                        print('Block declined, needs resolving')
+                    if rsp.status == 409:
+                        self.resolve_conflicts = True
+            except aiohttp.ClientConnectionError as cce:
                 continue
         return block
 
-    def add_block(self, block):
+    async def add_block(self, block):
         transactions = [Transaction(tx['sender'], tx['recipient'], tx['signature'], tx['amount']) for tx in
                         block['transactions']]
         proof_is_valid = Verification.valid_proof(transactions[:-1], block['previous_hash'], block['proof'])
@@ -191,7 +173,8 @@ class Blockchain:
         stored_transactions = self.__open_transactions[:]
         for itx in block['transactions']:
             for opentx in stored_transactions:
-                if opentx.sender == itx['sender'] and opentx.recipient == itx['recipient'] and opentx.amount == itx['amount'] and opentx.signature == itx['signature']:
+                if opentx.sender == itx['sender'] and opentx.recipient == itx['recipient'] \
+                        and opentx.amount == itx['amount'] and opentx.signature == itx['signature']:
                     try:
                         self.__open_transactions.remove(opentx)
                     except ValueError:
@@ -199,23 +182,23 @@ class Blockchain:
         self.save_data()
         return True
 
-    def resolve(self):
+    async def resolve(self):
         winner_chain = self.chain
         replace = False
         for node in self.__peer_nodes:
             url = 'http://{}/chain'.format(node)
             try:
-                response = requests.get(url)
-                node_chain = response.json()
-                node_chain = [Block(block['index'], block['previous_hash'], [Transaction(
-                    tx['sender'], tx['recipient'], tx['signature'], tx['amount']) for tx in block['transactions']],
-                                    block['proof'], block['timestamp']) for block in node_chain]
-                node_chain_length = len(node_chain)
-                local_chain_length = len(winner_chain)
-                if node_chain_length > local_chain_length and Verification.verify_chain(node_chain):
-                    winner_chain = node_chain
-                    replace = True
-            except requests.exceptions.ConnectionError:
+                async with app.api.aiohttp_session.get(url) as rsp:
+                    node_chain = await rsp.json()
+                    node_chain = [Block(block['index'], block['previous_hash'], [Transaction(
+                        tx['sender'], tx['recipient'], tx['signature'], tx['amount']) for tx in block['transactions']],
+                                        block['proof'], block['timestamp']) for block in node_chain]
+                    node_chain_length = len(node_chain)
+                    local_chain_length = len(winner_chain)
+                    if node_chain_length > local_chain_length and Verification.verify_chain(node_chain):
+                        winner_chain = node_chain
+                        replace = True
+            except aiohttp.ClientConnectionError:
                 continue
         self.resolve_conflicts = False
         self.chain = winner_chain
@@ -242,7 +225,7 @@ class Blockchain:
         self.__peer_nodes.discard(node)
         self.save_data()
 
-    def get_peer_nodes(self):
+    async def get_peer_nodes(self):
         """
         Return a list connect peer nodes
         :return:

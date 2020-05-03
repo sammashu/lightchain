@@ -49,6 +49,9 @@
                 transform: rotate(360deg);
             }
         }
+        .panel-body {
+            word-break: break-all;
+        }
     </style>
 </head>
 
@@ -76,9 +79,21 @@
             <div v-if="error" class="alert alert-danger" role="alert">
                 {{ error }}
             </div>
-            <div v-if="success" class="alert alert-success" role="alert">
-                {{ success }}
+            <div class="row">
+                <div class="col">
+                    <div v-if="success" class="alert alert-success" role="alert">
+                        <div class="panel panel-default">
+                            <div class="panel-heading">Public key</div>
+                            <div class="panel-body">{{ pubkey }}</div>
+                        </div>
+                        <div class="panel panel-default">
+                            <div class="panel-heading">Private key</div>
+                            <div class="panel-body">{{ prikey }}</div>
+                        </div>
+                    </div>
+                </div>
             </div>
+
             <div class="row">
                 <div class="col">
                     <div v-if="!walletLoading">
@@ -224,6 +239,8 @@
                 showElement: null,
                 error: null,
                 success: null,
+                pubkey:null,
+                prikey:null,
                 funds: 0,
                 outgoingTx: {
                     recipient: '',
@@ -247,7 +264,9 @@
                     axios.post('/wallet')
                         .then(function(response){
                             vm.error = null;
-                            vm.success = 'Created Wallet! Public Key: ' + response.data.public_key + ', Private Key: ' + response.data.private_key;
+                            vm.success = response.data.public_key + ' ' + response.data.private_key;
+                            vm.pubkey = response.data.public_key;
+                            vm.prikey = response.data.private_key;
                             vm.wallet = {
                                 public_key: response.data.public_key,
                                 private_key: response.data.private_key
@@ -257,6 +276,8 @@
                         })
                         .catch(function(error){
                             vm.success = null;
+                            vm.pubkey = null;
+                            vm.prikey = null;
                             vm.error = error.response.data.message;
                             vm.wallet = null;
                             vm.walletLoading = false;
@@ -269,7 +290,9 @@
                     axios.get('/wallet')
                         .then(function(response){
                             vm.error = null;
-                            vm.success = 'Load Wallet! Public Key: ' + response.data.public_key + ', Private Key: ' + response.data.private_key;
+                            vm.success = response.data.public_key + ' ' + response.data.private_key;
+                            vm.pubkey = response.data.public_key;
+                            vm.prikey = response.data.private_key;
                             vm.wallet = {
                                 public_key: response.data.public_key,
                                 private_key: response.data.private_key
@@ -279,6 +302,8 @@
                         })
                         .catch(function(error){
                             vm.success = null;
+                            vm.pubkey = null;
+                            vm.prikey = null;
                             vm.error = error.response.data.message;
                             vm.wallet = null;
                             vm.walletLoading = false;
