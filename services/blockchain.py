@@ -1,7 +1,7 @@
 import json
 import aiohttp
-
-import app
+from app import api
+from pymongo import errors
 from functools import reduce
 from utility.hash_util import hash_block
 from services.block import Block
@@ -13,7 +13,7 @@ MINING_REWARD = 10
 
 
 class Blockchain:
-    def __init__(self, public_key, node_id):
+    def __init__(self, public_key):
         genesis_block = Block(0, '', [], 100, 0)
         # Init Blockchain
         self.chain = [genesis_block]
@@ -22,9 +22,7 @@ class Blockchain:
 
         self.public_key = public_key
         self.__peer_nodes = set()
-        self.node_id = node_id
         self.resolve_conflicts = False
-        self.load_data()
 
     @property
     def chain(self):
@@ -37,46 +35,84 @@ class Blockchain:
     async def get_open_transactions(self):
         return self.__open_transactions[:]
 
-    def load_data(self):
+    async def load_blockchain(self):
+        blockchain = []
         try:
-            with open('blockchain-{}.txt'.format(self.node_id), mode='r') as f:
-                file_content = f.readlines()
-                blockchain = json.loads(file_content[0][:-1])
-                updated_blockchain = []
-                for block in blockchain:
-                    converted_tx = [Transaction(tx['sender'], tx['recipient'], tx['signature'], tx['amount']) for tx in
-                                    block['transactions']]
-                    updated_block = Block(block['index'], block['previous_hash'], converted_tx, block['proof'],
-                                          block['timestamp'])
-                    updated_blockchain.append(updated_block)
-                self.chain = updated_blockchain
-                open_transactions = json.loads(file_content[1][:-1])
-                updated_transactions = []
-                for tx in open_transactions:
-                    updated_transaction = Transaction(tx['sender'], tx['recipient'], tx['signature'], tx['amount'])
-                    updated_transactions.append(updated_transaction)
-                self.__open_transactions = updated_transactions
-                peer_nodes = json.loads(file_content[2])
-                self.__peer_nodes = set(peer_nodes)
-        except (IOError, IndexError):
+            async for doc in api.mongodb['blockchain'].find():
+                blockchain.append(doc)
+            return blockchain
+        except Exception:
+            print("error")
+
+    async def load_open_transactions(self):
+        opentransactions = []
+        try:
+            async for doc in api.mongodb['open_transactions'].find():
+                opentransactions.append(doc)
+            return opentransactions
+        except Exception:
+            print("error")
+
+    async def load_peers(self):
+        peernodes = []
+        try:
+            async for doc in api.mongodb['peer_nodes'].find():
+                peernodes.append(doc)
+            return peernodes
+        except Exception:
+            print("error")
+
+    async def load_data(self):
+        print("load")
+        try:
+
+            blockchain = await self.load_blockchain()
+            updated_blockchain = []
+            for block in blockchain:
+                converted_tx = [Transaction(tx['sender'], tx['recipient'], tx['signature'], tx['amount']) for tx in
+                                block['transactions']]
+                updated_block = Block(block['index'], block['previous_hash'], converted_tx, block['proof'],
+                                      block['timestamp'])
+                updated_blockchain.append(updated_block)
+            self.chain = updated_blockchain
+            load_transactions = await self.load_open_transactions()
+            open_transactions = load_transactions[:-1]
+            updated_transactions = []
+            for tx in open_transactions:
+                updated_transaction = Transaction(tx['sender'], tx['recipient'], tx['signature'], tx['amount'])
+                updated_transactions.append(updated_transaction)
+            self.__open_transactions = updated_transactions
+            peer_nodes = await self.load_peers()
+            self.__peer_nodes = set(peer_nodes)
+        except Exception:
             print('Handle exception....')
         finally:
             print('Cleanup!')
 
-    def save_data(self):
+    async def save_data(self):
+
         try:
-            with open('blockchain-{}.txt'.format(self.node_id), mode='w') as f:
-                saveable_chain = [block.__dict__ for block in [
-                    Block(block_el.index, block_el.previous_hash, [tx.__dict__ for tx in block_el.transactions],
-                          block_el.proof, block_el.timestamp) for block_el in self.__chain]]
-                f.write(json.dumps(saveable_chain))
-                f.write('\n')
-                saveable_tx = [tx.__dict__ for tx in self.__open_transactions]
-                f.write(json.dumps(saveable_tx))
-                f.write('\n')
-                f.write(json.dumps(list(self.__peer_nodes)))
-        except IOError:
-            print('Saving failes!')
+            saveable_chain = [block.__dict__ for block in [
+                Block(block_el.index, block_el.previous_hash, [tx.__dict__ for tx in block_el.transactions],
+                      block_el.proof, block_el.timestamp) for block_el in self.__chain]]
+            stringofchain = json.dumps(saveable_chain)
+            dictofchain = json.loads(stringofchain)
+            result = await api.mongodb['blockchain'].insert_many(dictofchain, ordered=False)
+            print('inserted %d docs' % (len(result.inserted_ids),))
+            if len(self.__open_transactions) > 0:
+                print("op")
+                stringofts = json.dumps([tx.__dict__ for tx in self.__open_transactions])
+                saveable_tx = json.loads(stringofts)
+                await api.mongodb['open_transactions'].insert_many(saveable_tx)
+            if len(list(self.__peer_nodes)) > 0:
+                print("peer")
+                peernodes = json.dumps(list(self.__peer_nodes))
+                await api.mongodb['peer_nodes'].insert_many(peernodes)
+
+        except errors.BulkWriteError as e:
+            panic = filter(lambda x: x['code'] != 11000, e.details['writeErrors'])
+            if len(list(panic)) > 0:
+                print(e.details['writeErrors'])
 
     def proof_of_work(self):
         last_block = self.__chain[-1]
@@ -115,13 +151,14 @@ class Blockchain:
         transaction = Transaction(sender, recipient, signature, amount)
         if await Verification.verify_transaction(transaction, self.get_balance):
             self.__open_transactions.append(transaction)
-            self.save_data()
+            await self.save_data()
             if not is_receiving:
                 for node in self.__peer_nodes:
                     url = 'http://{}/broadcast-transaction'.format(node)
                     try:
-                        async with app.api.aiohttp_session.post(url, json={'sender': sender, 'recipient': recipient, 'signature': signature,
-                                                       'amount': amount}) as rsp:
+                        async with api.aiohttp_session.post(url, json={'sender': sender, 'recipient': recipient,
+                                                                       'signature': signature,
+                                                                       'amount': amount}) as rsp:
                             if rsp.status == 400 or rsp.status == 500:
                                 print('Transaction declined, needs resolving')
                                 return False
@@ -145,13 +182,13 @@ class Blockchain:
         block = Block(len(self.__chain), hashed_block, copied_transactions, proof)
         self.__chain.append(block)
         self.__open_transactions = []
-        self.save_data()
+        await self.save_data()
         for node in self.__peer_nodes:
             url = 'http://{}/broadcast-block'.format(node)
             converted_block = block.__dict__.copy()
             converted_block['transactions'] = [tx.__dict__ for tx in converted_block['transactions']]
             try:
-                async with app.api.aiohttp_session.post(url, json={'block': converted_block}) as rsp:
+                async with api.aiohttp_session.post(url, json={'block': converted_block}) as rsp:
                     if rsp.status == 400 or rsp.status == 500:
                         print('Block declined, needs resolving')
                     if rsp.status == 409:
@@ -179,7 +216,7 @@ class Blockchain:
                         self.__open_transactions.remove(opentx)
                     except ValueError:
                         print('Item was already removed')
-        self.save_data()
+        await self.save_data()
         return True
 
     async def resolve(self):
@@ -188,7 +225,7 @@ class Blockchain:
         for node in self.__peer_nodes:
             url = 'http://{}/chain'.format(node)
             try:
-                async with app.api.aiohttp_session.get(url) as rsp:
+                async with api.aiohttp_session.get(url) as rsp:
                     node_chain = await rsp.json()
                     node_chain = [Block(block['index'], block['previous_hash'], [Transaction(
                         tx['sender'], tx['recipient'], tx['signature'], tx['amount']) for tx in block['transactions']],
@@ -204,26 +241,26 @@ class Blockchain:
         self.chain = winner_chain
         if replace:
             self.__open_transactions = []
-        self.save_data()
+        await self.save_data()
         return replace
 
-    def add_peer_node(self, node):
+    async def add_peer_node(self, node):
         """
 
         :param node: The node url which should be added
         :return:
         """
         self.__peer_nodes.add(node)
-        self.save_data()
+        await self.save_data()
 
-    def remove_peer_node(self, node):
+    async def remove_peer_node(self, node):
         """
         Remove a node from peer set
         :param node:  The node url which should remove
         :return:
         """
         self.__peer_nodes.discard(node)
-        self.save_data()
+        await self.save_data()
 
     async def get_peer_nodes(self):
         """
