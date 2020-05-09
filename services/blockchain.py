@@ -76,7 +76,10 @@ class Blockchain:
                 updated_blockchain.append(updated_block)
             self.chain = updated_blockchain
             load_transactions = await self.load_open_transactions()
-            open_transactions = load_transactions[:-1]
+            if len(load_transactions) == 1:
+                open_transactions = load_transactions
+            else:
+                open_transactions = load_transactions[:-1]
             updated_transactions = []
             for tx in open_transactions:
                 updated_transaction = Transaction(tx['sender'], tx['recipient'], tx['signature'], tx['amount'])
@@ -92,13 +95,6 @@ class Blockchain:
     async def save_data(self):
 
         try:
-            saveable_chain = [block.__dict__ for block in [
-                Block(block_el.index, block_el.previous_hash, [tx.__dict__ for tx in block_el.transactions],
-                      block_el.proof, block_el.timestamp) for block_el in self.__chain]]
-            stringofchain = json.dumps(saveable_chain)
-            dictofchain = json.loads(stringofchain)
-            result = await api.mongodb['blockchain'].insert_many(dictofchain, ordered=False)
-            print('inserted %d docs' % (len(result.inserted_ids),))
             if len(self.__open_transactions) > 0:
                 print("op")
                 stringofts = json.dumps([tx.__dict__ for tx in self.__open_transactions])
@@ -109,6 +105,13 @@ class Blockchain:
                 peernodes = json.dumps(list(self.__peer_nodes))
                 await api.mongodb['peer_nodes'].insert_many(peernodes)
 
+            saveable_chain = [block.__dict__ for block in [
+                Block(block_el.index, block_el.previous_hash, [tx.__dict__ for tx in block_el.transactions],
+                      block_el.proof, block_el.timestamp) for block_el in self.__chain]]
+            stringofchain = json.dumps(saveable_chain)
+            dictofchain = json.loads(stringofchain)
+            result = await api.mongodb['blockchain'].insert_many(dictofchain, ordered=False)
+            print('inserted %d docs' % (len(result.inserted_ids),))
         except errors.BulkWriteError as e:
             panic = filter(lambda x: x['code'] != 11000, e.details['writeErrors'])
             if len(list(panic)) > 0:
