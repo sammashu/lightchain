@@ -74,7 +74,8 @@ class Blockchain:
                 updated_block = Block(block['index'], block['previous_hash'], converted_tx, block['proof'],
                                       block['timestamp'])
                 updated_blockchain.append(updated_block)
-            self.chain = updated_blockchain
+            if len(updated_blockchain) > 0:
+                self.chain = updated_blockchain
             load_transactions = await self.load_open_transactions()
             if len(load_transactions) == 1:
                 open_transactions = load_transactions
@@ -100,10 +101,10 @@ class Blockchain:
                 stringofts = json.dumps([tx.__dict__ for tx in self.__open_transactions])
                 saveable_tx = json.loads(stringofts)
                 await api.mongodb['open_transactions'].insert_many(saveable_tx)
-            if len(list(self.__peer_nodes)) > 0:
-                print("peer")
-                peernodes = json.dumps(list(self.__peer_nodes))
-                await api.mongodb['peer_nodes'].insert_many(peernodes)
+            # if len(list(self.__peer_nodes)) > 0:
+            #     print("peer")
+            #     peernodes = json.dumps(list(self.__peer_nodes))
+            #     await api.mongodb['peer_nodes'].insert_many(peernodes)
 
             saveable_chain = [block.__dict__ for block in [
                 Block(block_el.index, block_el.previous_hash, [tx.__dict__ for tx in block_el.transactions],

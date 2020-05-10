@@ -17,12 +17,12 @@ async def get_index(request):
 
 @app.api.route('/', methods=['GET'])
 async def get_node_ui(request):
-    return html(ReaderHtml.get_ui("node.html"))
+    return html(ReaderHtml.get_ui("node.html", app))
 
 
 @app.api.route('/network', methods=['GET'])
 async def get_network_ui(request):
-    return html(ReaderHtml.get_ui('network.html'))
+    return html(ReaderHtml.get_ui('network.html', app))
 
 
 @app.api.route('/wallet', methods=['POST'])
