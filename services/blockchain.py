@@ -53,6 +53,12 @@ class Blockchain:
         except Exception:
             print("error")
 
+    async def delete_open_transaction(self, op):
+        try:
+            await api.mongodb['open_transactions'].delete_one(op)
+        except Exception:
+            print("Error")
+
     async def load_peers(self):
         peernodes = []
         try:
@@ -87,7 +93,8 @@ class Blockchain:
                 updated_transactions.append(updated_transaction)
             self.__open_transactions = updated_transactions
             peer_nodes = await self.load_peers()
-            self.__peer_nodes = set(peer_nodes)
+            for p in peer_nodes:
+                self.__peer_nodes.add(p["ip"])
         except Exception:
             print('Handle exception....')
         finally:
@@ -96,16 +103,6 @@ class Blockchain:
     async def save_data(self):
 
         try:
-            if len(self.__open_transactions) > 0:
-                print("op")
-                stringofts = json.dumps([tx.__dict__ for tx in self.__open_transactions])
-                saveable_tx = json.loads(stringofts)
-                await api.mongodb['open_transactions'].insert_many(saveable_tx)
-            # if len(list(self.__peer_nodes)) > 0:
-            #     print("peer")
-            #     peernodes = json.dumps(list(self.__peer_nodes))
-            #     await api.mongodb['peer_nodes'].insert_many(peernodes)
-
             saveable_chain = [block.__dict__ for block in [
                 Block(block_el.index, block_el.previous_hash, [tx.__dict__ for tx in block_el.transactions],
                       block_el.proof, block_el.timestamp) for block_el in self.__chain]]
@@ -113,6 +110,29 @@ class Blockchain:
             dictofchain = json.loads(stringofchain)
             result = await api.mongodb['blockchain'].insert_many(dictofchain, ordered=False)
             print('inserted %d docs' % (len(result.inserted_ids),))
+        except errors.BulkWriteError as e:
+            panic = filter(lambda x: x['code'] != 11000, e.details['writeErrors'])
+            if len(list(panic)) > 0:
+                print(e.details['writeErrors'])
+
+        try:
+            if len(self.__open_transactions) > 0:
+                print("op")
+                stringofts = json.dumps([tx.__dict__ for tx in self.__open_transactions])
+                saveable_tx = json.loads(stringofts)
+                await api.mongodb['open_transactions'].insert_many(saveable_tx, ordered=False)
+        except errors.BulkWriteError as e:
+            panic = filter(lambda x: x['code'] != 11000, e.details['writeErrors'])
+            if len(list(panic)) > 0:
+                print(e.details['writeErrors'])
+
+        try:
+            if len(list(self.__peer_nodes)) > 0:
+                print("peer")
+                dlist = []
+                for k, v in enumerate(list(self.__peer_nodes)):
+                    dlist.append({"ip": v, "index": k})
+                await api.mongodb['peer_nodes'].insert_many(dlist, ordered=False)
         except errors.BulkWriteError as e:
             panic = filter(lambda x: x['code'] != 11000, e.details['writeErrors'])
             if len(list(panic)) > 0:
@@ -218,6 +238,7 @@ class Blockchain:
                         and opentx.amount == itx['amount'] and opentx.signature == itx['signature']:
                     try:
                         self.__open_transactions.remove(opentx)
+                        await self.delete_open_transaction(opentx)
                     except ValueError:
                         print('Item was already removed')
         await self.save_data()

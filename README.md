@@ -18,6 +18,10 @@ minikube start
 eval $(minikube docker-env)
 ```
 
+##Database mongo
+db.open_transactions.createIndex( { "signature": 1 }, { unique: true } )
+db.blockchain.createIndex( { "index": 1 }, { unique: true } )
+
 ## Usage locally
 ```bash
 python run.py will default port 5000 first node
