@@ -55,6 +55,8 @@ class Blockchain:
 
     async def delete_open_transaction(self, op):
         try:
+            print("try delete op")
+            print(op)
             await api.mongodb['open_transactions'].delete_one(op)
         except Exception:
             print("Error")
@@ -62,11 +64,18 @@ class Blockchain:
     async def load_peers(self):
         peernodes = []
         try:
-            async for doc in api.mongodb['peer_nodes'].find():
+            async for doc in api.mongodb['peer_nodes'].find({"pk": {"$eq": self.public_key} }):
                 peernodes.append(doc)
             return peernodes
         except Exception:
             print("error")
+
+    async def delete_peer(self, node):
+        try:
+            print("try delete")
+            await api.mongodb['peer_nodes'].delete_one({"ip": {"$eq": node}})
+        except Exception:
+            print("Error")
 
     async def load_data(self):
         print("load")
@@ -82,11 +91,7 @@ class Blockchain:
                 updated_blockchain.append(updated_block)
             if len(updated_blockchain) > 0:
                 self.chain = updated_blockchain
-            load_transactions = await self.load_open_transactions()
-            if len(load_transactions) == 1:
-                open_transactions = load_transactions
-            else:
-                open_transactions = load_transactions[:-1]
+            open_transactions = await self.load_open_transactions()
             updated_transactions = []
             for tx in open_transactions:
                 updated_transaction = Transaction(tx['sender'], tx['recipient'], tx['signature'], tx['amount'])
@@ -131,7 +136,7 @@ class Blockchain:
                 print("peer")
                 dlist = []
                 for k, v in enumerate(list(self.__peer_nodes)):
-                    dlist.append({"ip": v, "index": k})
+                    dlist.append({"ip": v, "index": k, "pk": self.public_key})
                 await api.mongodb['peer_nodes'].insert_many(dlist, ordered=False)
         except errors.BulkWriteError as e:
             panic = filter(lambda x: x['code'] != 11000, e.details['writeErrors'])
@@ -285,6 +290,7 @@ class Blockchain:
         :return:
         """
         self.__peer_nodes.discard(node)
+        await self.delete_peer(node)
         await self.save_data()
 
     async def get_peer_nodes(self):
