@@ -56,8 +56,10 @@ class Blockchain:
     async def delete_open_transaction(self, op):
         try:
             print("try delete op")
+            print(type(op))
             print(op)
-            await api.mongodb['open_transactions'].delete_one(op)
+            print(op.signature)
+            await api.mongodb['open_transactions'].delete_one({"signature": {"$eq": op.signature}})
         except Exception:
             print("Error")
 
@@ -191,8 +193,12 @@ class Blockchain:
                             if rsp.status == 400 or rsp.status == 500:
                                 print('Transaction declined, needs resolving')
                                 return False
+                            elif rsp.status == 200:
+                                print("success add transaction")
+                                await self.delete_open_transaction(transaction)
                     except aiohttp.ClientConnectionError:
                         continue
+                print("is true add transaction")
             return True
         return False
 
