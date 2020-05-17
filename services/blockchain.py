@@ -42,7 +42,7 @@ class Blockchain:
                 blockchain.append(doc)
             return blockchain
         except Exception:
-            print("error")
+            print("Error load blockchain")
 
     async def load_open_transactions(self):
         opentransactions = []
@@ -51,17 +51,13 @@ class Blockchain:
                 opentransactions.append(doc)
             return opentransactions
         except Exception:
-            print("error")
+            print("Error load transaction")
 
     async def delete_open_transaction(self, op):
         try:
-            print("try delete op")
-            print(type(op))
-            print(op)
-            print(op.signature)
             await api.mongodb['open_transactions'].delete_one({"signature": {"$eq": op.signature}})
         except Exception:
-            print("Error")
+            print("Error delete open transaction")
 
     async def load_peers(self):
         peernodes = []
@@ -70,17 +66,16 @@ class Blockchain:
                 peernodes.append(doc)
             return peernodes
         except Exception:
-            print("error")
+            print("Error loading peer")
 
     async def delete_peer(self, node):
         try:
             print("try delete")
             await api.mongodb['peer_nodes'].delete_one({"ip": {"$eq": node}})
         except Exception:
-            print("Error")
+            print("Error delete peer")
 
     async def load_data(self):
-        print("load")
         try:
 
             blockchain = await self.load_blockchain()
