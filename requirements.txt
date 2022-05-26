@@ -1,4 +1,4 @@
-ujson==2.0.3
+ujson==5.2.0
 Sanic_Cors==0.10.0.post3
 sanic==20.12.6
 aiohttp==3.7.4
