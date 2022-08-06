@@ -1,6 +1,6 @@
 ujson==2.0.3
 Sanic_Cors==0.10.0.post3
-sanic==20.12.6
+sanic==20.12.7
 aiohttp==3.7.4
 motor==2.1.0
 pymongo==3.10.1
